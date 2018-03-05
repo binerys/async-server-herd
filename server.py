@@ -1,5 +1,6 @@
 import asyncio
 import config
+import argparse
 
 async def request_handler(reader, writer):
   data = await reader.read(100)
@@ -22,7 +23,13 @@ coro = asyncio.start_server(request_handler,
 server = loop.run_until_complete(coro)
 
 # Serve requests until Ctrl+C is pressed
-print('Serving on {}'.format(server.sockets[0].getsockname()))
+parser = argparse.ArgumentParser(description='Simple message-receiving server')
+parser.add_argument('name', metavar='N', help='Server name/id')
+args = parser.parse_args()
+
+server_id = args.name
+print('Serving on {}'.format(server_id))
+
 try:
     loop.run_forever()
 except KeyboardInterrupt:
