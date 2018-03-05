@@ -1,5 +1,5 @@
 import asyncio
-import configparser
+import config
 
 async def request_handler(reader, writer):
   data = await reader.read(100)
@@ -15,7 +15,10 @@ async def request_handler(reader, writer):
   writer.close()
 
 loop = asyncio.get_event_loop()
-coro = asyncio.start_server(request_handler, '127.0.0.1', 8888, loop=loop)
+coro = asyncio.start_server(request_handler,
+                            config.load('LOCAL', 'HOST'),
+                            config.load('LOCAL', 'PORT'),
+                            loop=loop)
 server = loop.run_until_complete(coro)
 
 # Serve requests until Ctrl+C is pressed
