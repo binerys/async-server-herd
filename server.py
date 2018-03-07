@@ -28,9 +28,11 @@ log.debug('starting up on {} port {}'.format(*SERVER_ADDRESS))
 
 try:
   event_loop.run_forever()
-finally:
-  log.debug('closing server')
-  server.close()
-  event_loop.run_until_complete(server.wait_closed())
-  log.debug('closing event loop')
-  event_loop.close()
+except KeyboardInterrupt:
+  pass
+
+log.debug('closing server')
+server.close()
+event_loop.run_until_complete(server.wait_closed())
+log.debug('closing event loop')
+event_loop.close()

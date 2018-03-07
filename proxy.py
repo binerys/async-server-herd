@@ -1,5 +1,8 @@
 import asyncio
 import logging
+import json
+import re
+import time
 
 ''' Server to Port Mappings '''
 SERVER_MAPPINGS = {
@@ -10,12 +13,87 @@ SERVER_MAPPINGS = {
   'Wilkes': 8004
 }
 
+''' Valid Requests '''
+VALID_REQUESTS = ['IAMAT', 'WHATSAT']
+
 '''
 Protocol subclass for async server in proxy herd
 '''
 class ProxyServer(asyncio.Protocol):
+  locations = {}
   def __init__(self, id):
     self.id = id
+    '''
+    locations format:
+    {
+      "Client_Name": {
+        "name": "Client_Name",
+        "latitude": "...",
+        "longitude: "...",
+        "time": "...
+      }
+    }
+    '''
+
+  def location_parser(self, raw_coords):
+    LAT_LONG_RE = r'((?:\+{1}|-{1})[0-9]{1,3}(?:\.[0-9]{1,10})?)'
+    matches = re.findall(LAT_LONG_RE, raw_coords)
+
+    if (len(matches) == 2):
+      latitude = matches[0]
+      longitude = matches[1]
+    else:
+      return None
+
+    return {'latitude': latitude, 'longitude': longitude}
+
+  def iamat_handler(self, parsed_request):
+    if (len(parsed_request) != 4):
+      self.log.debug('Invalid IAMAT request: {}'.format(parsed_request))
+      return None
+
+    location = {}
+    client = parsed_request[1]
+    raw_coord = parsed_request[2]
+    client_time = parsed_request[3]
+    if not client_time.replace('.', '', 1).isdigit():
+      self.log.debug('{} is not a valid time'.format(client_time))
+      return None
+
+    coord = self.location_parser(raw_coord)
+    if coord is not None:
+      location['latitude'] = coord['latitude']
+      location['longitude'] = coord['longitude']
+    else:
+      self.log.debug('{} is not a proper coordinate'.format(raw_coord))
+      return None
+
+    location['name'] = client
+    location['time'] = client_time
+
+    self.locations[client] = location
+    self.log.info('Updated locations: {}'.format(json.dumps(self.locations)))
+
+    # [TODO] IAMAT RESPONSE
+    client_time = float(client_time)
+    server_time = time.time()
+    time_difference = server_time - client_time
+      
+    return True
+
+  def request_handler(self, request):
+    parsed_request = request.split()
+    self.log.debug('parsed_request: {}'.format(parsed_request))
+    if (len(parsed_request) > 1):
+      request = parsed_request[0]
+      if (request not in VALID_REQUESTS):
+        self.log.debug('{} is not a valid request'.format(request))
+        return None
+      elif (request == 'IAMAT'):
+        return self.iamat_handler(parsed_request)
+    else:
+      self.log.debug('{} improperly formatted request'.format(request))
+      return None
 
   def connection_made(self, transport):
     self.transport = transport
@@ -26,9 +104,16 @@ class ProxyServer(asyncio.Protocol):
     self.log.debug('connection accepted')
   
   def data_received(self, data):
-    self.log.debug('received {!r}'.format(data))
-    self.transport.write(data)
-    self.log.debug('sent {!r}'.format(data))
+    request = data.decode()
+    server_response = self.request_handler(request)
+    if server_response is not None:
+      response = 'Successfully received {}'.format(request)
+    else:
+      response = '(?) {}'.format(request)
+    
+    self.log.debug(response)
+    self.transport.write(response.encode())
+    self.log.debug('sent {}'.format(response))
   
   def eof_received(self):
     self.log.debug('received EOF')
