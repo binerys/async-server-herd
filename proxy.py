@@ -47,7 +47,8 @@ class ProxyServer(asyncio.Protocol):
 
     return {'latitude': latitude, 'longitude': longitude}
 
-  def iamat_handler(self, parsed_request):
+  def iamat_handler(self, request):
+    parsed_request = request.split()
     if (len(parsed_request) != 4):
       self.log.debug('Invalid IAMAT request: {}'.format(parsed_request))
       return None
@@ -72,25 +73,32 @@ class ProxyServer(asyncio.Protocol):
     location['time'] = client_time
 
     self.locations[client] = location
-    self.log.info('Updated locations: {}'.format(json.dumps(self.locations)))
+    self.log.debug('Updated locations: {}'.format(json.dumps(self.locations)))
 
-    # [TODO] IAMAT RESPONSE
+    # [TODO] Propagate received location to other servers
+
+    # Set response to client
     client_time = float(client_time)
     server_time = time.time()
     time_difference = server_time - client_time
-      
-    return True
+    if (time_difference > 0):
+      time_difference = '+{}'.format(str(time_difference))
+
+    response = 'AT {server} {difference} {request}'.format(server=self.id,
+                                                          difference=time_difference,
+                                                          request=' '.join(parsed_request[1:]))
+    return response
 
   def request_handler(self, request):
     parsed_request = request.split()
     self.log.debug('parsed_request: {}'.format(parsed_request))
     if (len(parsed_request) > 1):
-      request = parsed_request[0]
-      if (request not in VALID_REQUESTS):
-        self.log.debug('{} is not a valid request'.format(request))
+      request_type = parsed_request[0]
+      if (request_type not in VALID_REQUESTS):
+        self.log.debug('{} is not a valid request'.format(request_type))
         return None
-      elif (request == 'IAMAT'):
-        return self.iamat_handler(parsed_request)
+      elif (request_type == 'IAMAT'):
+        return self.iamat_handler(request)
     else:
       self.log.debug('{} improperly formatted request'.format(request))
       return None
@@ -107,7 +115,7 @@ class ProxyServer(asyncio.Protocol):
     request = data.decode()
     server_response = self.request_handler(request)
     if server_response is not None:
-      response = 'Successfully received {}'.format(request)
+      response = '{}'.format(server_response)
     else:
       response = '(?) {}'.format(request)
     
