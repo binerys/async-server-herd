@@ -3,9 +3,12 @@ import config
 import argparse
 import json
 import re
+import time
 
-# Client locations
+server_id = ""
+VALID_REQUESTS = ['IAMAT', 'WHATSAT']
 '''
+locations format:
 {
   "Client_Name": {
     "name": "Client_Name",
@@ -29,41 +32,50 @@ def location_parser(raw_coords):
 
   return {'latitude': latitude, 'longitude': longitude}
 
+def iamat_handler(parsed_message):
+  location = {}
+  client = parsed_message[1]
+  raw_coord = parsed_message[2]
+  time = parsed_message[3]
+  if not time.replace('.', '', 1).isdigit():
+    # Log Error
+    return None
+
+  coord = location_parser(raw_coord)
+  if coord is not None:
+    location['latitude'] = coord['latitude']
+    location['longitude'] = coord['longitude']
+  else:
+    # Log Error
+    return None
+
+  location['name'] = client
+  location['time'] = time
+
+  locations[client] = location
+
+  # [TODO] IAMAT RESPONSE
+  client_time = float(time)
+  server_time = time.time()
+  time_difference = server_time - client_time
+    
+  return True
 
 def request_parser(message):
-  valid_requests = ['IAMAT', 'WHATSAT']
-  location = {}
   parsed_message = message.split()
 
   if (len(parsed_message) == 4):
     request = parsed_message[0]
-    if (request not in valid_requests):
+    if (request not in VALID_REQUESTS):
       # Log Error
-      return False
-
-    client = parsed_message[1]
-    raw_coord = parsed_message[2]
-    time = parsed_message[3]
-    if not time.replace('.', '', 1).isdigit():
-      # Log Error
-      return False
-
-    coord = location_parser(raw_coord)
-    if coord is not None:
-      location['latitude'] = coord['latitude']
-      location['longitude'] = coord['longitude']
-    else:
-      # Log Error
-      return False
-
-    location['name'] = client
-    location['time'] = time
-
-    locations[client] = location
-    return True
+      return None
+    elif (request == 'IAMAT'):
+      return iamat_handler(parsed_message)
+    elif (request == 'WHATSAT'):
+      return "WHATSAT"
   else:
     # Log error
-    return False
+    return None
 
 
 async def request_handler(reader, writer):
@@ -72,13 +84,14 @@ async def request_handler(reader, writer):
   addr = writer.get_extra_info('peername')
   print("Received %r from %r" % (message, addr))
 
-  if (request_parser(message)):
+  server_response = request_parser(message)
+  if server_response is not None:
     success_message = "Successfully updated locations: {}".format(json.dumps(locations))
     print(success_message)
     writer.write(str.encode(success_message))
     
   else:
-    failure_message = "(?) Unsuccessfully parsed: {}".format(message)
+    failure_message = "(?) {}".format(message)
     print(failure_message)
     writer.write(str.encode(failure_message))
 
