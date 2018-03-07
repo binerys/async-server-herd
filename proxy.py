@@ -21,6 +21,7 @@ Protocol subclass for async server in proxy herd
 '''
 class ProxyServer(asyncio.Protocol):
   locations = {}
+
   def __init__(self, id):
     self.id = id
     '''
@@ -28,6 +29,7 @@ class ProxyServer(asyncio.Protocol):
     {
       "Client_Name": {
         "name": "Client_Name",
+        "coordinates": "...",
         "latitude": "...",
         "longitude: "...",
         "time": "...
@@ -47,6 +49,40 @@ class ProxyServer(asyncio.Protocol):
 
     return {'latitude': latitude, 'longitude': longitude}
 
+  """
+  create_AT_response
+
+  :param client_name: The name of the client as a string. Assumes client exists
+                      in locations dict
+  
+  :returns: A response string
+  """
+  def create_AT_response(self, client_name):
+    client = self.locations[client_name]
+    client_name = client['name']
+    client_time = client['time']
+    client_coordinates = client['coordinates']
+
+    # Calculate time difference
+    client_time = float(client_time)
+    server_time = time.time()
+    difference = server_time - client_time
+    if (difference > 0):
+      time_difference = '+{}'.format(str(difference))
+    else:
+      time_difference = str(difference)
+    
+    response = 'AT {server} {difference} {client} {coordinates} {time}'.format(
+      server=self.id,
+      difference=time_difference,
+      client=client_name,
+      coordinates=client_coordinates,
+      time=client_time
+    )
+
+    return response
+
+    
   def iamat_handler(self, request):
     parsed_request = request.split()
     if (len(parsed_request) != 4):
@@ -70,6 +106,7 @@ class ProxyServer(asyncio.Protocol):
       return None
 
     location['name'] = client
+    location['coordinates'] = raw_coord
     location['time'] = client_time
 
     self.locations[client] = location
@@ -78,20 +115,52 @@ class ProxyServer(asyncio.Protocol):
     # [TODO] Propagate received location to other servers
 
     # Set response to client
-    client_time = float(client_time)
-    server_time = time.time()
-    time_difference = server_time - client_time
-    if (time_difference > 0):
-      time_difference = '+{}'.format(str(time_difference))
-
-    response = 'AT {server} {difference} {request}'.format(server=self.id,
-                                                          difference=time_difference,
-                                                          request=' '.join(parsed_request[1:]))
+    response = self.create_AT_response(client)
     return response
+
+  def whatsat_handler(self, request):
+    parsed_request = request.split()
+    if (len(parsed_request) != 4):
+      self.log.debug('Invalid WHATSAT request: {}'.format(parsed_request))
+      return None
+
+    client_name = parsed_request[1]
+
+    if (not parsed_request[2].isdigit() or not parsed_request[3].isdigit()):
+      self.log.debug('Radius/Information amount must be a valid number')
+      return None
+
+    radius = int(parsed_request[2])
+    info_amt = int(parsed_request[3])
+
+    if (radius > 50):
+      self.log.debug('Radius {} must be less than 50km'.format(radius))
+      return None
+    
+    if (info_amt > 20):
+      self.log.debug('Information amount {} must be less than 20'.format(info_amt))
+      return None
+
+    # Check if we have the client's information
+    if client_name in self.locations.keys():
+      at_response = self.create_AT_response(client_name)
+      places_response = '[PLACES TODO]'
+
+      
+      response = '{at_response}\n{places_response}'.format(
+        at_response=at_response,
+        places_response=places_response
+      )
+      return response
+    else:
+      # [TODO] Request information from other servers
+      return '[server todo]'
+
+    return True
 
   def request_handler(self, request):
     parsed_request = request.split()
-    self.log.debug('parsed_request: {}'.format(parsed_request))
+
     if (len(parsed_request) > 1):
       request_type = parsed_request[0]
       if (request_type not in VALID_REQUESTS):
@@ -99,6 +168,8 @@ class ProxyServer(asyncio.Protocol):
         return None
       elif (request_type == 'IAMAT'):
         return self.iamat_handler(request)
+      elif (request_type == 'WHATSAT'):
+        return self.whatsat_handler(request)
     else:
       self.log.debug('{} improperly formatted request'.format(request))
       return None
@@ -159,7 +230,7 @@ class ProxyClient(asyncio.Protocol):
         transport.write_eof()
 
   def data_received(self, data):
-    self.log.debug('received {!r}'.format(data))
+    self.log.debug('received:\n{}'.format(data.decode()))
 
   def eof_received(self):
     self.log.debug('received EOF')
