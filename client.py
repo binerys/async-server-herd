@@ -1,27 +1,39 @@
 import asyncio
-import config
+import logging
+import sys
 import argparse
 
-async def send_request(message, loop):
-  reader, writer = await asyncio.open_connection(config.load('LOCAL', 'HOST'),
-                                                 config.load('LOCAL', 'PORT'),
-                                                 loop=loop)
+from proxy import ProxyClient
+from proxy import SERVER_MAPPINGS
 
-  print('Send: %r' % message)
-  writer.write(message.encode())
-
-  data = await reader.read(100)
-  print('Received: %r' % data.decode())
-
-  print('Close the socket')
-  writer.close()
-
-
+# Parse command-line argument
 parser = argparse.ArgumentParser(description='Simple message-sending client')
+parser.add_argument('server', metavar='S',
+                    help='server to send message to',
+                    choices=[*SERVER_MAPPINGS])
 parser.add_argument('message', metavar='M', help='a message for the client to send')
 args = parser.parse_args()
 
+SERVER_ADDRESS = ('localhost', SERVER_MAPPINGS[args.server])
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(name)s: %(message)s',
+    stream=sys.stderr,
+)
+log = logging.getLogger('client.py')
+
+event_loop = asyncio.get_event_loop()
+client_completed = asyncio.Future()
 message = args.message
-loop = asyncio.get_event_loop()
-loop.run_until_complete(send_request(message, loop))
-loop.close()
+factory_coroutine = event_loop.create_connection(
+  lambda: ProxyClient(message, client_completed),
+  *SERVER_ADDRESS,
+)
+
+log.debug('waiting for client to complete')
+try:
+  event_loop.run_until_complete(factory_coroutine)
+  event_loop.run_until_complete(client_completed)
+finally:
+  log.debug('closing event loop')
+  event_loop.close()
