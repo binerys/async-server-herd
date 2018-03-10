@@ -4,6 +4,7 @@ import json
 import re
 import time
 
+from async_fetch import get_json
 ''' Server to Port Mappings '''
 SERVER_MAPPINGS = {
   'Goloman': 8000,
@@ -16,6 +17,8 @@ SERVER_MAPPINGS = {
 ''' Valid Requests '''
 VALID_REQUESTS = ['IAMAT', 'WHATSAT']
 
+NEARBY_PLACES_URL = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?'
+API_KEY = 'AIzaSyCSWg4zx4MKKqJkTin0ff-1_ByYgFhrJ4s'
 '''
 Protocol subclass for async server in proxy herd
 '''
@@ -37,12 +40,21 @@ class ProxyServer(asyncio.Protocol):
     }
     '''
 
+  def get_nearby_places(self, latitude, longitude, radius, info_amt):
+    params = {
+      'key': API_KEY,
+      'location': '{lat},{long}'.format(lat=latitude, long=longitude),
+      'radius': radius*1000
+    }
+    return get_json(NEARBY_PLACES_URL, params)
+
+
   def location_parser(self, raw_coords):
     LAT_LONG_RE = r'((?:\+{1}|-{1})[0-9]{1,3}(?:\.[0-9]{1,10})?)'
     matches = re.findall(LAT_LONG_RE, raw_coords)
 
     if (len(matches) == 2):
-      latitude = matches[0]
+      latitude = matches[0].replace('+', '', 1)
       longitude = matches[1]
     else:
       return None
@@ -143,18 +155,29 @@ class ProxyServer(asyncio.Protocol):
 
     # Check if we have the client's information
     if client_name in self.locations.keys():
+      client = self.locations[client_name]
       at_response = self.create_AT_response(client_name)
-      places_response = '[PLACES TODO]'
+      places_response = self.get_nearby_places(
+        client['latitude'],
+        client['longitude'],
+        radius,
+        info_amt
+      )
 
-      
-      response = '{at_response}\n{places_response}'.format(
+      if places_response is None:
+        places_response = '[GOOGLE PLACES API ERROR]'
+
+      #[TODO] format places_response per spec
+
+      response = '{at_response}\n{places_response}\n\n'.format(
         at_response=at_response,
         places_response=places_response
       )
+
       return response
     else:
-      # [TODO] Request information from other servers
-      return '[server todo]'
+      self.log.debug('{} location not found'.format(client_name))
+      return None
 
     return True
 
