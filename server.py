@@ -7,18 +7,18 @@ from proxy_server import ProxyServer
 from server_config import SERVER_MAPPINGS
 from server_config import SERVER_URL
 
-'''Logging Configuration'''
-logging.basicConfig(
-  level=logging.DEBUG,
-  format='%(name)s: %(message)s',
-  stream=sys.stderr,
-)
-log = logging.getLogger('server.py')
-
 # Obtain server id from command-line
 parser = argparse.ArgumentParser(description='Simple message-receiving server')
 parser.add_argument('id', metavar='I', help='Server id', choices=[*SERVER_MAPPINGS])
 args = parser.parse_args()
+
+'''Logging Configuration'''
+logging.basicConfig(
+  level=logging.DEBUG,
+  format='%(asctime)-15s - %(name)s: %(message)s',
+  filename='{}.log'.format(args.id),
+)
+log = logging.getLogger('server.py')
 
 ''' Setup Server '''
 SERVER_ADDRESS = (SERVER_URL, SERVER_MAPPINGS[args.id])
