@@ -7,6 +7,7 @@ import time
 from async_fetch import get_json
 from proxy_client import ProxyClient
 
+from server_config import SERVER_URL
 from server_config import SERVER_NETWORK
 from server_config import SERVER_MAPPINGS
 from server_config import HOP_COUNT
@@ -44,7 +45,7 @@ class ProxyServer(asyncio.Protocol):
     try:
       await loop.create_connection(
         lambda: ProxyClient(message, future),
-        host='localhost',
+        host=SERVER_URL,
         port=SERVER_MAPPINGS[server_id]
       )
     except OSError:

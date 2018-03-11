@@ -1,10 +1,10 @@
 ''' Server to Port Mappings '''
 SERVER_MAPPINGS = {
-  'Goloman': 8000,
-  'Hands': 8001,
-  'Holiday': 8002,
-  'Welsh': 8003,
-  'Wilkes': 8004
+  'Goloman': 17920,
+  'Hands': 17921,
+  'Holiday': 17922,
+  'Welsh': 17923,
+  'Wilkes': 17924
 }
 
 INVERSE_SERVER_MAPPINGS = {v: k for k, v in SERVER_MAPPINGS.items()}
@@ -17,6 +17,6 @@ SERVER_NETWORK = {
   'Wilkes': ['Goloman', 'Hands', 'Holiday']
 }
 
-SERVER_URL = 'localhost'
+SERVER_URL = 'lnxsrv09.seas.ucla.edu'
 HOP_COUNT = 2
 
