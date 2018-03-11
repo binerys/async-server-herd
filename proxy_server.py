@@ -76,7 +76,14 @@ class ProxyServer(asyncio.Protocol):
       'location': '{lat},{long}'.format(lat=latitude, long=longitude),
       'radius': radius*1000
     }
-    return get_json(NEARBY_PLACES_URL, params)
+    data = get_json(NEARBY_PLACES_URL, params)
+    if data is None:
+      return None
+    
+    google_api = json.loads(data)
+    modified_results = google_api['results'][0:info_amt]
+    google_api['results'] = modified_results
+    return json.dumps(google_api, indent=3)
 
 
   def location_parser(self, raw_coords):
@@ -196,9 +203,10 @@ class ProxyServer(asyncio.Protocol):
       )
 
       if places_response is None:
-        places_response = '[GOOGLE PLACES API ERROR]'
+        self.log.debug('[GOOGLE PLACES API ERROR]')
+        return None
 
-      #[TODO] format places_response per spec
+
 
       response = '{at_response}\n{places_response}\n\n'.format(
         at_response=at_response,
