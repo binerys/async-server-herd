@@ -37,8 +37,5 @@ def get_json(url, params):
   result = queue.Queue()
   fetch_thread = Thread(target=fetch_request, args=(fetch_thread_loop, url, params, result))
   fetch_thread.start()
-  fetch_thread.join()
 
   return result.get()
-
-

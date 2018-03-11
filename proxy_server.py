@@ -5,40 +5,69 @@ import re
 import time
 
 from async_fetch import get_json
-''' Server to Port Mappings '''
-SERVER_MAPPINGS = {
-  'Goloman': 8000,
-  'Hands': 8001,
-  'Holiday': 8002,
-  'Welsh': 8003,
-  'Wilkes': 8004
-}
+from proxy_client import ProxyClient
+
+from server_config import SERVER_NETWORK
+from server_config import SERVER_MAPPINGS
+from server_config import HOP_COUNT
+from server_config import INVERSE_SERVER_MAPPINGS
 
 ''' Valid Requests '''
-VALID_REQUESTS = ['IAMAT', 'WHATSAT']
+VALID_REQUESTS = ['IAMAT', 'WHATSAT', 'AT']
 
 NEARBY_PLACES_URL = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?'
 API_KEY = 'AIzaSyCSWg4zx4MKKqJkTin0ff-1_ByYgFhrJ4s'
+
 '''
 Protocol subclass for async server in proxy herd
 '''
 class ProxyServer(asyncio.Protocol):
+  """
+  locations format:
+  {
+    "Client_Name": {
+      "name": "Client_Name",
+      "coordinates": "...",
+      "latitude": "...",
+      "longitude: "...",
+      "time": "...
+    }
+  }
+  """
   locations = {}
 
-  def __init__(self, id):
+  def __init__(self, id, loop):
     self.id = id
-    '''
-    locations format:
-    {
-      "Client_Name": {
-        "name": "Client_Name",
-        "coordinates": "...",
-        "latitude": "...",
-        "longitude: "...",
-        "time": "...
-      }
-    }
-    '''
+    self.loop = loop
+
+  async def send_message(self, loop, future, server_id, message):
+    try:
+      await loop.create_connection(
+        lambda: ProxyClient(message, future),
+        host='localhost',
+        port=SERVER_MAPPINGS[server_id]
+      )
+    except OSError:
+      self.log.debug('[CONNECTION REFUSED] Failed to connect to {}'.format(server_id))
+
+  def propagate_at_message(self, server_sender, client_name, client_location, client_time, hop_count=HOP_COUNT, exclude=None):
+    server_network = list(SERVER_NETWORK[server_sender])
+    print('SERVER_NETWORK LIST:\n{}'.format(server_network))
+    message = 'AT {server_sender} {hop_count} {client_name} {client_location} {client_time}'.format(
+      server_sender=server_sender,
+      hop_count=hop_count,
+      client_name=client_name,
+      client_location=client_location,
+      client_time=client_time
+    )
+    if exclude is not None:
+      server_network.remove(exclude)
+
+    loop = asyncio.get_event_loop()
+    for recipient in server_network:
+      self.log.debug('[IN PROGRESS] {}->{}: Sending message - {}'.format(server_sender, recipient, message))
+      client_response_future = asyncio.Future()
+      future = loop.create_task(self.send_message(loop, client_response_future, recipient, message))
 
   def get_nearby_places(self, latitude, longitude, radius, info_amt):
     params = {
@@ -98,7 +127,7 @@ class ProxyServer(asyncio.Protocol):
   def iamat_handler(self, request):
     parsed_request = request.split()
     if (len(parsed_request) != 4):
-      self.log.debug('Invalid IAMAT request: {}'.format(parsed_request))
+      self.log.debug('[ERROR] Invalid IAMAT request: {}'.format(parsed_request))
       return None
 
     location = {}
@@ -106,7 +135,7 @@ class ProxyServer(asyncio.Protocol):
     raw_coord = parsed_request[2]
     client_time = parsed_request[3]
     if not client_time.replace('.', '', 1).isdigit():
-      self.log.debug('{} is not a valid time'.format(client_time))
+      self.log.debug('[ERROR] {} is not a valid time'.format(client_time))
       return None
 
     coord = self.location_parser(raw_coord)
@@ -114,7 +143,7 @@ class ProxyServer(asyncio.Protocol):
       location['latitude'] = coord['latitude']
       location['longitude'] = coord['longitude']
     else:
-      self.log.debug('{} is not a proper coordinate'.format(raw_coord))
+      self.log.debug('[ERROR] {} is not a proper coordinate'.format(raw_coord))
       return None
 
     location['name'] = client
@@ -122,10 +151,11 @@ class ProxyServer(asyncio.Protocol):
     location['time'] = client_time
 
     self.locations[client] = location
-    self.log.debug('Updated locations: {}'.format(json.dumps(self.locations)))
+    self.log.debug('[LOCATIONS] Updated locations: {}'.format(json.dumps(self.locations)))
 
-    # [TODO] Propagate received location to other servers
-
+    self.log.debug('[PROPAGATE] {} Propagating fresh location update'.format(self.id))
+    self.propagate_at_message(self.id, client, raw_coord, client_time)
+    
     # Set response to client
     response = self.create_AT_response(client)
     return response
@@ -133,24 +163,24 @@ class ProxyServer(asyncio.Protocol):
   def whatsat_handler(self, request):
     parsed_request = request.split()
     if (len(parsed_request) != 4):
-      self.log.debug('Invalid WHATSAT request: {}'.format(parsed_request))
+      self.log.debug('[ERROR] Invalid WHATSAT request: {}'.format(parsed_request))
       return None
 
     client_name = parsed_request[1]
 
     if (not parsed_request[2].isdigit() or not parsed_request[3].isdigit()):
-      self.log.debug('Radius/Information amount must be a valid number')
+      self.log.debug('[ERROR] Radius/Information amount must be a valid number')
       return None
 
     radius = int(parsed_request[2])
     info_amt = int(parsed_request[3])
 
     if (radius > 50):
-      self.log.debug('Radius {} must be less than 50km'.format(radius))
+      self.log.debug('[ERROR] Radius {} must be less than 50km'.format(radius))
       return None
     
     if (info_amt > 20):
-      self.log.debug('Information amount {} must be less than 20'.format(info_amt))
+      self.log.debug('[ERROR] Information amount {} must be less than 20'.format(info_amt))
       return None
 
     # Check if we have the client's information
@@ -176,10 +206,52 @@ class ProxyServer(asyncio.Protocol):
 
       return response
     else:
-      self.log.debug('{} location not found'.format(client_name))
+      self.log.debug('[ERROR] {} location not found'.format(client_name))
       return None
 
     return True
+  
+  def at_handler(self, request):
+    
+    parsed_request = request.split()
+    if (len(parsed_request) != 6):
+      self.log.debug('[ERROR] Invalid AT Request: {}'.format(parsed_request))
+      return None
+    
+
+    location = {}
+    server_sender = parsed_request[1]
+    hop_count = int(parsed_request[2])
+    client_name = parsed_request[3]
+    raw_coord = parsed_request[4]
+    client_time = parsed_request[5]
+
+    self.log.debug('[PROPAGATION] Received location update from {}'.format(server_sender))
+
+    coord = self.location_parser(raw_coord)
+    if coord is not None:
+      location['latitude'] = coord['latitude']
+      location['longitude'] = coord['longitude']
+      location['coordinates'] = raw_coord
+    else:
+      self.log.debug('[ERROR] {} is not a proper coordinate'.format(raw_coord))
+      return None
+    
+    location['name'] = client_name
+    location['time'] = client_time
+
+    self.locations[client_name] = location
+    self.log.debug('[LOCATION] Updated Server {} locations:\n{}'.format(self.id, json.dumps(self.locations)))
+    
+    # Propagate to the received information
+    
+    self.log.debug('[PROPAGATION] {} passing forward location update'.format(self.id))
+    if hop_count != 0:
+      self.propagate_at_message(self.id, client_name, raw_coord, client_time, hop_count=hop_count-1, exclude=server_sender)
+    else:
+      self.log.debug('[FLOODING COMPLETE] at Server {}'.format(self.id))
+    
+    return ''
 
   def request_handler(self, request):
     parsed_request = request.split()
@@ -187,14 +259,16 @@ class ProxyServer(asyncio.Protocol):
     if (len(parsed_request) > 1):
       request_type = parsed_request[0]
       if (request_type not in VALID_REQUESTS):
-        self.log.debug('{} is not a valid request'.format(request_type))
+        self.log.debug('[ERROR] {} is not a valid request'.format(request_type))
         return None
       elif (request_type == 'IAMAT'):
         return self.iamat_handler(request)
       elif (request_type == 'WHATSAT'):
         return self.whatsat_handler(request)
+      elif (request_type == 'AT'):
+        return self.at_handler(request)
     else:
-      self.log.debug('{} improperly formatted request'.format(request))
+      self.log.debug('[ERROR] {} improperly formatted request'.format(request))
       return None
 
   def connection_made(self, transport):
@@ -219,51 +293,10 @@ class ProxyServer(asyncio.Protocol):
   
   def eof_received(self):
     self.log.debug('received EOF')
-    if self.transport.can_write_eof():
-      self.transport.write_eof()
 
   def connection_lost(self, error):
     if error:
       self.log.error('ERROR: {}'.format(error))
     else:
-      self.log.debug('closing')
+      self.log.debug('closing Server {}'.format(self.id))
     super().connection_lost(error)
-
-'''
-Protocol subclass for async proxy client
-'''
-class ProxyClient(asyncio.Protocol):
-
-  def __init__(self, message, future):
-    super().__init__()
-    self.message = message
-    self.log = logging.getLogger('ProxyClient')
-    self.f = future
-
-  def connection_made(self, transport):
-    self.transport = transport
-    self.address = transport.get_extra_info('peername')
-    self.log.debug(
-        'connecting to {} port {}'.format(*self.address)
-    )
-    transport.write(self.message.encode())
-    self.log.debug('sending {!r}'.format(self.message))
-
-    if transport.can_write_eof():
-        transport.write_eof()
-
-  def data_received(self, data):
-    self.log.debug('received:\n{}'.format(data.decode()))
-
-  def eof_received(self):
-    self.log.debug('received EOF')
-    self.transport.close()
-    if not self.f.done():
-        self.f.set_result(True)
-
-  def connection_lost(self, exc):
-    self.log.debug('server closed connection')
-    self.transport.close()
-    if not self.f.done():
-        self.f.set_result(True)
-    super().connection_lost(exc)

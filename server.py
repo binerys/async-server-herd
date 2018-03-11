@@ -3,8 +3,9 @@ import sys
 import argparse
 import asyncio
 
-from proxy import ProxyServer
-from proxy import SERVER_MAPPINGS
+from proxy_server import ProxyServer
+from server_config import SERVER_MAPPINGS
+from server_config import SERVER_URL
 
 '''Logging Configuration'''
 logging.basicConfig(
@@ -20,9 +21,9 @@ parser.add_argument('id', metavar='I', help='Server id', choices=[*SERVER_MAPPIN
 args = parser.parse_args()
 
 ''' Setup Server '''
-SERVER_ADDRESS = ('localhost', SERVER_MAPPINGS[args.id])
+SERVER_ADDRESS = (SERVER_URL, SERVER_MAPPINGS[args.id])
 event_loop = asyncio.get_event_loop()
-server_factory = event_loop.create_server(lambda: ProxyServer(args.id), *SERVER_ADDRESS)
+server_factory = event_loop.create_server(lambda: ProxyServer(args.id, event_loop), *SERVER_ADDRESS)
 server = event_loop.run_until_complete(server_factory)
 log.debug('starting up on {} port {}'.format(*SERVER_ADDRESS))
 
