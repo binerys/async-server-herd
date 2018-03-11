@@ -36,10 +36,14 @@ class ProxyServer(asyncio.Protocol):
   }
   """
   locations = {}
-
+  
   def __init__(self, id, loop):
     self.id = id
     self.loop = loop
+    self.fh = logging.FileHandler('{}.log'.format(self.id), mode='a')
+    self.fh.setLevel(logging.DEBUG)
+    self.formatter = logging.Formatter('%(asctime)s - %(name)s  - %(message)s')
+    self.fh.setFormatter(self.formatter)
 
   async def send_message(self, loop, future, server_id, message):
     try:
@@ -53,7 +57,6 @@ class ProxyServer(asyncio.Protocol):
 
   def propagate_at_message(self, server_sender, client_name, client_location, client_time, hop_count=HOP_COUNT, exclude=None):
     server_network = list(SERVER_NETWORK[server_sender])
-    print('SERVER_NETWORK LIST:\n{}'.format(server_network))
     message = 'AT {server_sender} {hop_count} {client_name} {client_location} {client_time}'.format(
       server_sender=server_sender,
       hop_count=hop_count,
@@ -286,6 +289,7 @@ class ProxyServer(asyncio.Protocol):
     self.log = logging.getLogger(
       'ProxyServer-{}_{}_{}'.format(self.id, *self.addresss)
     )
+    self.log.addHandler(self.fh)
     self.log.debug('connection accepted')
   
   def data_received(self, data):

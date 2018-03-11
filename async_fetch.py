@@ -21,8 +21,6 @@ def fetch_request(loop, url, params, result):
     async with aiohttp.ClientSession() as session:
       async with session.get(url, params=params) as resp:
         if (resp.status != 200):
-          #[TODO] make this logged
-          print('API Request failed with status {} {}'.format(resp.status, resp.reason))
           return None
         
         data = await resp.text()
